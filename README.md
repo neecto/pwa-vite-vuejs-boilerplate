@@ -1,6 +1,6 @@
 # Power Web App boilerplate powered by Vite and using VueJS as SPA framework
 
-This is a boilerplate object setup for local development and testing of a PWA project. I want to have it for myself for future reference.
+This is a boilerplate project setup for local development and testing of a PWA project. I want to have it for myself for future reference.
 
 ## Pre-requisites
 
