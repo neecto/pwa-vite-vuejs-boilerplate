@@ -88,6 +88,12 @@ If you intend to test on mobile devices, you may want to trust your generated ce
 
 ## Running the app
 
+### Install packages
+
+```
+npm ci
+```
+
 ### Build the project
 
 ```
