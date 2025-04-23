@@ -4,18 +4,25 @@ import { useRegisterSW } from 'virtual:pwa-register/vue';
 
 // periodic sync is disabled, change the value to enable it, the period is in milliseconds
 // You can remove onRegisteredSW callback and registerPeriodicSync function
-const period = 1000;
+const period = 5000;
 
-const swActivated = ref(false);
+const swStatus = ref<ServiceWorkerState>('installing');
+const error = ref<string | null>(null);
+const lastUpdateDate = ref<Date>(new Date());
 
 /**
  * This function will register a periodic sync check every hour, you can modify the interval as needed.
  */
-function registerPeriodicSync(swUrl: string, r: ServiceWorkerRegistration) {
+function registerPeriodicSync(
+    swUrl: string,
+    swRegistration: ServiceWorkerRegistration
+) {
     if (period <= 0) return;
 
     setInterval(async () => {
-        if ('onLine' in navigator && !navigator.onLine) return;
+        if ('onLine' in navigator && !navigator.onLine) {
+            return;
+        }
 
         const resp = await fetch(swUrl, {
             cache: 'no-store',
@@ -25,96 +32,119 @@ function registerPeriodicSync(swUrl: string, r: ServiceWorkerRegistration) {
             },
         });
 
-        if (resp?.status === 200) await r.update();
+        if (resp?.status === 200) {
+            lastUpdateDate.value = new Date();
+            await swRegistration.update();
+        }
     }, period);
 }
 
 const { offlineReady, needRefresh, updateServiceWorker } = useRegisterSW({
     immediate: true,
-    onRegisteredSW(swUrl, r) {
-        if (period <= 0) return;
-        if (r?.active?.state === 'activated') {
-            swActivated.value = true;
-            registerPeriodicSync(swUrl, r);
-        } else if (r?.installing) {
-            r.installing.addEventListener('statechange', (e) => {
+
+    onRegisteredSW(swScriptUrl, registration) {
+        console.log('SW registered:', swScriptUrl);
+
+        if (registration?.active?.state === 'activated') {
+            swStatus.value = 'activated';
+            registerPeriodicSync(swScriptUrl, registration);
+        } else if (registration?.installing) {
+            registration.installing.addEventListener('statechange', (e) => {
                 const sw = e.target as ServiceWorker;
-                swActivated.value = sw.state === 'activated';
-                if (swActivated.value) registerPeriodicSync(swUrl, r);
+                swStatus.value = sw.state;
+
+                if (sw.state === 'activated') {
+                    registerPeriodicSync(swScriptUrl, registration);
+                }
             });
         }
     },
+    onRegisterError(error) {
+        error.value = error.toString();
+    },
+
+    onOfflineReady() {
+        console.log('Offline Ready');
+    },
 });
 
-const title = computed(() => {
-    if (offlineReady.value) return 'App ready to work offline';
-    if (needRefresh.value)
-        return 'New content available, click on reload button to update.';
-    return '';
-});
-
-function close() {
-    offlineReady.value = false;
-    needRefresh.value = false;
+async function reload() {
+    console.log('Reload clicked');
+    try {
+        await updateServiceWorker(true);
+        needRefresh.value = false;
+    } catch (e) {
+        console.error('Error updating service worker:', e);
+    }
 }
+
+const isOnline = computed(() => {
+    if (typeof navigator === 'undefined') return false;
+    return 'onLine' in navigator && navigator.onLine;
+});
 </script>
 
 <template>
-    <div
-        v-if="offlineReady || needRefresh"
-        class="pwa-toast"
-        aria-labelledby="toast-message"
-        role="alert"
-    >
-        <div class="message">
-            <span id="toast-message">
-                {{ title }}
-            </span>
+    <div class="status-cards">
+        <div class="card">
+            <h4>Service Worker</h4>
+            <p>
+                <b>Satus: </b> <i>{{ swStatus.toString() }}</i>
+                <i v-if="error !== null">{{ error }}</i>
+            </p>
+
+            <p>
+                <b>Offline Ready: </b> <i>{{ offlineReady ? 'Yes' : 'No' }}</i>
+            </p>
         </div>
-        <div class="buttons">
-            <button
-                v-if="needRefresh"
-                type="button"
-                class="reload"
-                @click="updateServiceWorker()"
-            >
-                Reload
-            </button>
-            <button type="button" @click="close">Close</button>
+
+        <div class="card">
+            <h4>Network</h4>
+            <p>
+                <b>Network status: </b>
+                <i>{{ isOnline ? 'Online' : 'Offline' }}</i>
+            </p>
+
+            <p>
+                <b>Last server update: </b>
+                <i>{{ lastUpdateDate.toLocaleTimeString() }}</i>
+            </p>
+
+            <p v-if="needRefresh">
+                <b>New Content Available</b>
+                <button @click="reload()">Reload App</button>
+            </p>
         </div>
     </div>
 </template>
 
 <style scoped>
-.pwa-toast {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    margin: 16px;
-    padding: 12px;
-    border: 1px solid #8885;
-    border-radius: 4px;
-    z-index: 1;
-    text-align: left;
-    box-shadow: 3px 4px 5px 0 #8885;
-    display: grid;
-    background-color: white;
-    color: #000;
-}
-.pwa-toast .message {
-    margin-bottom: 8px;
-}
-.pwa-toast .buttons {
+.status-cards {
     display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    gap: 1rem;
 }
-.pwa-toast button {
-    border: 1px solid #8885;
-    outline: none;
-    margin-right: 5px;
-    border-radius: 2px;
-    padding: 3px 10px;
-}
-.pwa-toast button.reload {
-    display: block;
+
+.card {
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 1em;
+    width: 20%;
+    min-width: 10rem;
+
+    h4 {
+        margin: 0;
+        font-size: 1.2em;
+    }
+
+    p {
+        text-align: left;
+        margin: 0.5em 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
 }
 </style>
